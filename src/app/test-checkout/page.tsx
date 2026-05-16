@@ -3,11 +3,11 @@
 import { OrderApi } from '@/lib/api';
 import { CheckCircle, CreditCard, Loader2, Lock } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 
 type Step = 'form' | 'complete';
 
-export default function TestCheckoutPage() {
+function TestCheckoutContent() {
   const params = useSearchParams();
   const router = useRouter();
 
@@ -217,6 +217,23 @@ export default function TestCheckoutPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function TestCheckoutPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="min-h-screen flex items-center justify-center"
+          style={{ backgroundColor: '#f6f8f6' }}
+        >
+          <Loader2 className="animate-spin text-slate-500" size={24} />
+        </div>
+      }
+    >
+      <TestCheckoutContent />
+    </Suspense>
   );
 }
 
