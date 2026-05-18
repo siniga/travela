@@ -13,7 +13,7 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 const publicLinks = [
   { href: '/', label: 'Home' },
@@ -34,16 +34,9 @@ export default function Navbar() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [pendingExternalPayment, setPendingExternalPayment] = useState(false);
 
   // On the home page the navbar floats over the hero image
   const isHome = pathname === '/';
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const pending = !!localStorage.getItem('pendingExternalPayment');
-    setPendingExternalPayment(pending);
-  }, [isAuthenticated, isLoading, pathname, router]);
 
   const handleLogout = () => {
     logout();

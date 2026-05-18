@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import {
   ArrowLeft,
@@ -76,6 +76,22 @@ function apiErrorMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
+function extractPaymentUrl(summary: Record<string, unknown>): string | null {
+  const payment = summary.payment;
+  if (payment && typeof payment === 'object') {
+    const p = payment as Record<string, unknown>;
+    for (const key of ['checkout_url', 'payment_url', 'url'] as const) {
+      const v = p[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  }
+  for (const key of ['checkout_url', 'payment_url'] as const) {
+    const v = summary[key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return null;
+}
+
 const TOPUP_STEPS: { id: Step; label: string }[] = [
   { id: 'payment', label: 'Payment' },
 ];
@@ -122,11 +138,10 @@ export default function CheckoutPage() {
   const [paying, setPaying] = useState(false);
   const [registeredUserId, setRegisteredUserId] = useState<number | null>(null);
   const [orderDraftId, setOrderDraftId] = useState<string>(() => `DRAFT-${new Date().getFullYear()}-${Date.now()}`);
-  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
-  const [hasPendingExternalPayment, setHasPendingExternalPayment] = useState(false);
   const [orderStoredSummary, setOrderStoredSummary] = useState<{
     order_id?: string | number;
     draft_id?: string;
+    payment_url?: string;
     status?: string;
     total_amount?: number | string;
     currency?: string;
@@ -150,9 +165,6 @@ export default function CheckoutPage() {
             // ignore malformed stored user data
           }
         }
-
-        const pending = localStorage.getItem('pendingExternalPayment');
-        if (pending) setHasPendingExternalPayment(true);
 
         const { tripArrivalDate, tripDepartureDate } = defaultTripDates();
         const withTripDates: Cart = { ...parsed, tripArrivalDate, tripDepartureDate };
@@ -199,6 +211,48 @@ export default function CheckoutPage() {
       day: 'numeric',
       year: 'numeric',
     });
+
+  /** Open a blank tab synchronously on user click (call before any await). */
+  const beginPaymentTab = (): Window | null => {
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
+    return tab;
+  };
+
+  /** Navigate payment tab to URL. Avoid noopener/noreferrer feature flags — they make window.open return null even when the tab opens. */
+  const openPaymentInNewTab = (url: string, existingTab?: Window | null) => {
+    if (existingTab && !existingTab.closed) {
+      existingTab.location.href = url;
+      return;
+    }
+    const tab = window.open(url, '_blank');
+    if (tab) tab.opener = null;
+  };
+
+  const buildPaymentRedirectUrl = (opts: {
+    emailOverride?: string;
+    orderId?: string | number;
+    draftId?: string;
+  }) => {
+    const payEmail = (opts.emailOverride ?? email).trim();
+    const redirectBase = process.env.NEXT_PUBLIC_PAYMENT_REDIRECT_URL?.trim();
+    if (!redirectBase) {
+      throw new Error(
+        'Payment is not configured. Set NEXT_PUBLIC_PAYMENT_REDIRECT_URL or use an order API that returns a checkout URL.'
+      );
+    }
+
+    const url = new URL(redirectBase);
+    url.searchParams.set('amount', total.toFixed(2));
+    url.searchParams.set('currency', currency);
+    url.searchParams.set('email', payEmail);
+    url.searchParams.set('country', cart.country);
+    url.searchParams.set('countryName', cart.countryName);
+    url.searchParams.set('simType', cart.simType);
+    if (opts.orderId != null) url.searchParams.set('order_id', String(opts.orderId));
+    if (opts.draftId) url.searchParams.set('draft_id', opts.draftId);
+    return url.toString();
+  };
 
   const handleRegisterAndSendOtp = async () => {
     const trimmedName = fullName.trim();
@@ -267,7 +321,7 @@ export default function CheckoutPage() {
   };
 
   type OrderCheckoutResult = {
-    url: string | null;
+    paymentUrl: string | null;
     orderId?: string | number;
     draftId?: string;
     status?: string;
@@ -291,45 +345,24 @@ export default function CheckoutPage() {
 
     const draftId =
       typeof summary?.draft_id === 'string' ? summary.draft_id : orderDraftId;
-    const testUrl =
-      orderId != null ? `/test-checkout?order_id=${encodeURIComponent(String(orderId))}` : null;
+    const paymentUrl = extractPaymentUrl(summary);
 
     const result: OrderCheckoutResult = {
-      url: testUrl,
+      paymentUrl,
       orderId: orderId ?? undefined,
       draftId,
       status: typeof summary?.status === 'string' ? summary.status : undefined,
     };
 
-    setCheckoutUrl(testUrl);
     setOrderStoredSummary({
       order_id: result.orderId,
       draft_id: draftId,
+      payment_url: paymentUrl ?? undefined,
       status: result.status,
       total_amount: summary?.total_amount as number | string | undefined,
       currency: summary?.currency as string | undefined,
     });
     return result;
-  };
-
-  const savePendingExternalPayment = (
-    paymentUrl: string,
-    orderId: string | number | undefined,
-    draftId: string | undefined,
-    userId: number | null
-  ) => {
-    localStorage.setItem(
-      'pendingExternalPayment',
-      JSON.stringify({
-        order_id: orderId,
-        draft_id: draftId ?? orderDraftId,
-        checkout_url: paymentUrl,
-        status: 'pending',
-        user_id: userId,
-        created_at: new Date().toISOString(),
-      })
-    );
-    setHasPendingExternalPayment(true);
   };
 
   const handleVerifyOtp = async () => {
@@ -358,54 +391,17 @@ export default function CheckoutPage() {
     }
   };
 
-  /** Runs after guest registration (or immediately if already signed in). */
-  const executePaymentFlow = async (emailOverride?: string) => {
-    const payEmail = (emailOverride ?? email).trim();
-    setPaying(true);
-
-    const redirectBase = process.env.NEXT_PUBLIC_PAYMENT_REDIRECT_URL?.trim();
-    if (redirectBase) {
-      const url = new URL(redirectBase);
-      url.searchParams.set('amount', total.toFixed(2));
-      url.searchParams.set('currency', currency);
-      url.searchParams.set('email', payEmail);
-      url.searchParams.set('country', cart.country);
-      url.searchParams.set('countryName', cart.countryName);
-      url.searchParams.set('simType', cart.simType);
-
-      localStorage.setItem(
-        'pendingPayment',
-        JSON.stringify({
-          items: cart.items,
-          trip: {
-            countryName: cart.countryName,
-            arrivalDate: cart.tripArrivalDate,
-            departureDate: cart.tripDepartureDate,
-            duration:
-              cart.tripArrivalDate && cart.tripDepartureDate
-                ? tripInclusiveDays(cart.tripArrivalDate, cart.tripDepartureDate)
-                : undefined,
-          },
-          simType: cart.simType,
-          total,
-          currency,
-          email: payEmail,
-          createdAt: new Date().toISOString(),
-        })
-      );
-
-      window.location.assign(url.toString());
-      return;
-    }
-
-    if (isTopUpFlow) {
-      throw new Error('Could not start payment. Please try again.');
-    }
-
-    await new Promise((r) => setTimeout(r, 800));
+  const savePendingPayment = (opts: {
+    emailOverride?: string;
+    orderId?: string | number;
+    draftId?: string;
+  }) => {
+    const payEmail = (opts.emailOverride ?? email).trim();
     localStorage.setItem(
-      'lastPurchase',
+      'pendingPayment',
       JSON.stringify({
+        order_id: opts.orderId,
+        draft_id: opts.draftId ?? orderDraftId,
         items: cart.items,
         trip: {
           countryName: cart.countryName,
@@ -419,12 +415,10 @@ export default function CheckoutPage() {
         simType: cart.simType,
         total,
         currency,
-        date: new Date().toISOString(),
+        email: payEmail,
+        createdAt: new Date().toISOString(),
       })
     );
-    localStorage.removeItem('cart');
-    setPaying(false);
-    setStep('success');
   };
 
   const getStoredUserId = (): number | null => {
@@ -521,7 +515,7 @@ export default function CheckoutPage() {
     };
   };
 
-  /** Payment step — creates order if needed, then always routes through a real payment page. */
+  /** Payment step — creates order if needed, then opens payment in a new tab and returns to dashboard. */
   const handleContinueToPaymentClick = async () => {
     const token =
       typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -530,55 +524,34 @@ export default function CheckoutPage() {
       return;
     }
 
+    const paymentTab = beginPaymentTab();
+
     setPaying(true);
     try {
       const userId = registeredUserId ?? getStoredUserId();
-      let paymentUrl = checkoutUrl;
       let orderId = orderStoredSummary?.order_id;
       let draftId = orderStoredSummary?.draft_id;
+      let paymentUrl = orderStoredSummary?.payment_url ?? null;
 
-      if (!paymentUrl && userId) {
+      if (!orderId && userId) {
         const created = await createOrderForCheckout(userId);
-        paymentUrl = created.url;
         orderId = created.orderId ?? orderId;
         draftId = created.draftId ?? draftId;
+        paymentUrl = created.paymentUrl ?? paymentUrl;
       }
 
-      const redirectBase = process.env.NEXT_PUBLIC_PAYMENT_REDIRECT_URL?.trim();
-      if (isTopUpFlow) {
-        if (redirectBase) {
-          await executePaymentFlow();
-          return;
-        }
-        if (!paymentUrl) {
-          throw new Error(
-            'Could not start payment. The order was created but no payment link is available.'
-          );
-        }
-        savePendingExternalPayment(
-          paymentUrl,
-          orderId,
-          draftId,
-          registeredUserId ?? userId
-        );
-        router.push(paymentUrl);
-        return;
+      if (!orderId) {
+        throw new Error('Could not start payment. No order was created.');
       }
 
-      if (paymentUrl) {
-        savePendingExternalPayment(
-          paymentUrl,
-          orderId,
-          draftId,
-          registeredUserId ?? userId
-        );
-        window.open(paymentUrl, '_blank', 'noopener,noreferrer');
-        window.location.assign('/dashboard');
-        return;
-      }
+      const targetUrl =
+        paymentUrl ?? buildPaymentRedirectUrl({ orderId, draftId });
 
-      await executePaymentFlow();
+      savePendingPayment({ orderId, draftId });
+      openPaymentInNewTab(targetUrl, paymentTab);
+      router.push('/dashboard');
     } catch (e: unknown) {
+      if (paymentTab && !paymentTab.closed) paymentTab.close();
       const fallback =
         e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);
       alert(fallback || 'Could not continue to payment.');
@@ -995,22 +968,8 @@ export default function CheckoutPage() {
             <p className="text-sm text-slate-500 mb-6">
               {isTopUpFlow
                 ? 'Top up your bundle by completing payment below.'
-                : 'You’re ready to pay. We’ll redirect you to a secure payment platform to complete your purchase.'}
+                : 'You’re ready to pay. Payment will open in a new tab on our secure payment platform.'}
             </p>
-
-            {hasPendingExternalPayment && (
-              <div
-                className="rounded-xl px-4 py-3 mb-6 border"
-                style={{ backgroundColor: 'rgba(23,207,84,0.08)', borderColor: 'rgba(17,33,22,0.12)' }}
-              >
-                <p className="text-sm font-semibold text-slate-800">
-                  You’re logged in. Payment is pending.
-                </p>
-                <p className="text-xs text-slate-500 mt-1">
-                  Complete payment in the checkout tab, then come back here to continue.
-                </p>
-              </div>
-            )}
 
             {/* Order mini-summary */}
             <div
@@ -1050,8 +1009,8 @@ export default function CheckoutPage() {
                 <div className="flex-1">
                   <p className="text-base font-extrabold text-slate-900 mb-1">Pay on a secure payment page</p>
                   <p className="text-sm text-slate-600 leading-relaxed">
-                    When you continue, you’ll be redirected to our payment partner to complete checkout. After payment,
-                    you’ll return to Travela to get your confirmation.
+                    When you continue, payment opens in a new tab on our secure payment partner. After you pay,
+                    return here or check your dashboard for confirmation.
                   </p>
 
                   <div className="mt-4 grid sm:grid-cols-2 gap-3">
@@ -1083,7 +1042,7 @@ export default function CheckoutPage() {
               style={{ backgroundColor: '#112116' }}
             >
               {paying
-                ? <><Loader2 size={18} className="animate-spin" /> Redirecting…</>
+                ? <><Loader2 size={18} className="animate-spin" /> Opening payment…</>
                 : <>Continue to Payment <ArrowRight size={18} /></>}
             </button>
           </div>

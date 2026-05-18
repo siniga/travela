@@ -3,7 +3,6 @@
 import { EsimsApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import {
-  ArrowRight,
   CheckCircle,
   Clock,
   Globe,
@@ -104,9 +103,6 @@ export default function DashboardPage() {
   const [userEsims, setUserEsims] = useState<UserEsimRecord[]>([]);
   const [esimsLoading, setEsimsLoading] = useState(false);
   const [esimsError, setEsimsError] = useState('');
-  const [pendingExternalPayment, setPendingExternalPayment] = useState(false);
-  const [pendingInfo, setPendingInfo] = useState<{ order_id?: string | number; draft_id?: string; checkout_url?: string } | null>(null);
-
   const loadEsims = useCallback(async () => {
     setEsimsLoading(true);
     setEsimsError('');
@@ -150,23 +146,6 @@ export default function DashboardPage() {
       } catch {
         setPurchase(null);
       }
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const pending = localStorage.getItem('pendingExternalPayment');
-    if (pending) {
-      setPendingExternalPayment(true);
-      try {
-        const parsed = JSON.parse(pending) as { order_id?: string | number; draft_id?: string; checkout_url?: string };
-        setPendingInfo(parsed);
-      } catch {
-        setPendingInfo(null);
-      }
-    } else {
-      setPendingExternalPayment(false);
-      setPendingInfo(null);
     }
   }, [isAuthenticated]);
 
@@ -220,49 +199,6 @@ export default function DashboardPage() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-        {pendingExternalPayment && (
-          <div
-            className="rounded-2xl border border-slate-200 bg-white p-6"
-            style={{ borderColor: 'rgba(17,33,22,0.12)' }}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: 'rgba(23,207,84,0.14)' }}
-              >
-                <Clock size={18} style={{ color: '#112116' }} />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-extrabold text-slate-900">Payment pending</p>
-                <p className="text-sm text-slate-600 mt-1">
-                  Finish the checkout in the payment tab. Once payment is completed, your order status will update.
-                </p>
-                {pendingInfo?.draft_id && (
-                  <p className="text-xs text-slate-500 mt-2">
-                    Draft ID: <span className="font-semibold text-slate-700">{pendingInfo.draft_id}</span>
-                  </p>
-                )}
-                {pendingInfo?.order_id && (
-                  <button
-                    type="button"
-                    className="mt-3 inline-flex items-center gap-2 text-xs font-bold hover:underline"
-                    style={{ color: '#112116' }}
-                    onClick={() =>
-                      window.open(
-                        `/test-checkout?order_id=${encodeURIComponent(String(pendingInfo.order_id))}`,
-                        '_blank',
-                        'noopener,noreferrer'
-                      )
-                    }
-                  >
-                    Open checkout again <ArrowRight size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
         {esimsError && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             {esimsError}

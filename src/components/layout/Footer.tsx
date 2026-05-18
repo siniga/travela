@@ -1,8 +1,20 @@
+'use client';
+
+import { useAuth } from '@/lib/auth-context';
 import { Mail, X } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 
 export default function Footer() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  const accountLinks = [
+    ...(!isLoading && !isAuthenticated
+      ? [{ href: '/auth/login', label: 'Sign In' }]
+      : []),
+    { href: '/profile', label: 'Profile' },
+  ];
+
   return (
     <footer style={{ backgroundColor: '#112116' }} className="text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -67,10 +79,7 @@ export default function Footer() {
               Account
             </h3>
             <ul className="space-y-2">
-              {[
-                { href: '/auth/login', label: 'Sign In' },
-                { href: '/profile', label: 'Profile' },
-              ].map((l) => (
+              {accountLinks.map((l) => (
                 <li key={l.href}>
                   <Link
                     href={l.href}

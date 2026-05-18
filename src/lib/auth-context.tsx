@@ -147,7 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('lastPurchase');
-    localStorage.removeItem('pendingExternalPayment');
+    localStorage.removeItem('pendingPayment');
     setToken(null);
     setUser(null);
     window.dispatchEvent(new Event(AUTH_STORAGE_SYNC));

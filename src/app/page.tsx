@@ -1,5 +1,6 @@
 'use client';
 
+import { useAuth } from '@/lib/auth-context';
 import { ArrowRight, Wifi, Zap, Shield } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -96,6 +97,13 @@ const howItWorks = [
 
 export default function LandingPage() {
   const typedText = useTypewriter(typingPhrases);
+  const { isAuthenticated, isLoading } = useAuth();
+
+  const ctaHref =
+    !isLoading && isAuthenticated
+      ? '/bundles?country=TZ&countryName=Tanzania&topup=1'
+      : '/bundles?country=TZ&countryName=Tanzania';
+  const ctaLabel = !isLoading && isAuthenticated ? 'Top Up' : 'Get Started';
 
   return (
     <div>
@@ -136,11 +144,11 @@ export default function LandingPage() {
 
             <div className="flex flex-col sm:flex-row gap-3">
               <Link
-                href="/bundles?country=TZ&countryName=Tanzania"
+                href={ctaHref}
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl text-base font-bold transition-opacity hover:opacity-90"
                 style={{ backgroundColor: '#112116', color: 'white' }}
               >
-                Get Started <ArrowRight size={18} />
+                {ctaLabel} <ArrowRight size={18} />
               </Link>
               <a
                 href="#how-it-works"

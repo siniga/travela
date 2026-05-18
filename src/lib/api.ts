@@ -220,18 +220,6 @@ export const OrderApi = {
     const body = await parseResponseBody(res);
     return { ok: res.ok, status: res.status, body };
   },
-  /** POST /orders/:orderId/payment-paid-test (test) */
-  paymentPaidTest: async (orderId: string | number): Promise<ApiResult> => {
-    const res = await fetch(`${PUBLIC_API_BASE}/public/orders/${orderId}/payment-paid-test`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        ...authHeaders(),
-      },
-    });
-    const body = await parseResponseBody(res);
-    return { ok: res.ok, status: res.status, body };
-  },
   // TODO: GET /orders/:draftId
   getByDraftId: async (_draftId: string) => ({ data: {} }),
   // TODO: POST /preorders/drafts
