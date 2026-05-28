@@ -7,6 +7,7 @@
 
 const PUBLIC_API_BASE =
   process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/+$/, "") ??
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ??
   "https://api.thetravela.com/api";
 
 function getBearerToken(): string | null {
@@ -173,6 +174,21 @@ export const AuthApi = {
         ...authHeaders(),
       },
       body: JSON.stringify(data),
+    });
+    const body = await parseResponseBody(res);
+    return { ok: res.ok, status: res.status, body };
+  },
+  /** POST /auth/email/resend — resend verification email (auth required) */
+  resendVerificationEmail: async (): Promise<ApiResult> => {
+    const res = await fetch(`${PUBLIC_API_BASE}/auth/email/resend`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...authHeaders(),
+      },
+      // Some Laravel setups expect a JSON request body even if empty.
+      body: JSON.stringify({}),
     });
     const body = await parseResponseBody(res);
     return { ok: res.ok, status: res.status, body };

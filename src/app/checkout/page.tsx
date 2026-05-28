@@ -133,6 +133,10 @@ export default function CheckoutPage() {
   const [otp, setOtp] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [otpError, setOtpError] = useState('');
+  const [otpInfo, setOtpInfo] = useState('');
+  const [resendingOtp, setResendingOtp] = useState(false);
+  const [resendCooldownEndsAt, setResendCooldownEndsAt] = useState<number>(0);
+  const [resendSecondsLeft, setResendSecondsLeft] = useState<number>(0);
 
   // Payment
   const [paying, setPaying] = useState(false);
@@ -188,6 +192,17 @@ export default function CheckoutPage() {
       router.replace('/dashboard');
     }
   }, [step, isTopUpFlow, router]);
+
+  useEffect(() => {
+    if (step !== 'otp') return;
+    const tick = () => {
+      const msLeft = Math.max(0, resendCooldownEndsAt - Date.now());
+      setResendSecondsLeft(Math.ceil(msLeft / 1000));
+    };
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, [step, resendCooldownEndsAt]);
 
   if (!cart) {
     return (
@@ -308,7 +323,8 @@ export default function CheckoutPage() {
       setEmail(trimmedEmail);
       setFullName(trimmedName);
 
-      // Email verification API disabled for now — OTP step accepts any code locally.
+      setOtpError('');
+      setOtpInfo('');
       setOtp('');
       setStep('otp');
     } catch (e: unknown) {
@@ -366,17 +382,25 @@ export default function CheckoutPage() {
   };
 
   const handleVerifyOtp = async () => {
-    if (!otp.trim()) {
-      setOtpError('Please enter a verification code.');
+    const normalized = otp.replace(/\D/g, '').trim();
+    if (!/^\d{6}$/.test(normalized)) {
+      setOtpError('Please enter the 6-digit verification code.');
       return;
     }
 
     setOtpError('');
+    setOtpInfo('');
     setVerifyingOtp(true);
     try {
       const userId = registeredUserId ?? getStoredUserId();
       if (!userId) {
         setOtpError('Account verified but user id is missing. Please sign in and try again.');
+        return;
+      }
+
+      const verifyRes = await AuthApi.verifyEmail({ email: email.trim(), code: normalized });
+      if (!verifyRes.ok) {
+        setOtpError(apiErrorMessage(verifyRes.body, `Verification failed (HTTP ${verifyRes.status}).`));
         return;
       }
 
@@ -388,6 +412,38 @@ export default function CheckoutPage() {
       setOtpError(fallback || 'Verification failed.');
     } finally {
       setVerifyingOtp(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendSecondsLeft > 0) return;
+    const token =
+      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (!token) {
+      setOtpError('Please sign in again to resend the verification code.');
+      setOtpInfo('');
+      return;
+    }
+
+    setOtpError('');
+    setOtpInfo('');
+    setResendingOtp(true);
+    try {
+      const res = await AuthApi.resendVerificationEmail();
+      if (!res.ok) {
+        setOtpError(apiErrorMessage(res.body, `Could not resend code (HTTP ${res.status}).`));
+        return;
+      }
+      setOtpInfo(
+        apiErrorMessage(res.body, 'Verification code sent to your email.')
+      );
+      setResendCooldownEndsAt(Date.now() + 30_000);
+    } catch (e: unknown) {
+      const fallback =
+        e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);
+      setOtpError(fallback || 'Could not resend code.');
+    } finally {
+      setResendingOtp(false);
     }
   };
 
@@ -927,7 +983,7 @@ export default function CheckoutPage() {
             </div>
             <h2 className="text-xl font-extrabold text-slate-900 mb-2">Verification code</h2>
             <p className="text-sm text-slate-500 mb-8 leading-relaxed">
-              Enter any code below to continue. Email verification is not enabled yet.
+              Enter the 6-digit code we sent to <strong className="text-slate-700">{email || 'your email'}</strong>.
             </p>
 
             <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-4 text-left">
@@ -942,15 +998,33 @@ export default function CheckoutPage() {
                 inputMode="numeric"
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 text-lg font-bold text-slate-900 tracking-[0.3em] text-center placeholder-slate-300 focus:outline-none focus:border-slate-400"
               />
+              {otpInfo && !otpError && (
+                <p className="text-xs font-medium text-emerald-700 mt-2">{otpInfo}</p>
+              )}
               {otpError && (
                 <p className="text-xs font-medium text-red-600 mt-2">{otpError}</p>
               )}
+              <div className="flex items-center justify-between mt-4">
+                <button
+                  type="button"
+                  onClick={() => void handleResendOtp()}
+                  disabled={resendingOtp || resendSecondsLeft > 0}
+                  className="text-xs font-bold text-slate-600 hover:text-slate-900 disabled:opacity-50"
+                >
+                  {resendingOtp
+                    ? 'Sending…'
+                    : resendSecondsLeft > 0
+                      ? `Resend code (${resendSecondsLeft}s)`
+                      : 'Resend code'}
+                </button>
+                <span className="text-[11px] text-slate-400">Check spam/junk if you don’t see it.</span>
+              </div>
             </div>
 
             <button
               type="button"
               onClick={() => void handleVerifyOtp()}
-              disabled={verifyingOtp || !otp.trim()}
+              disabled={verifyingOtp || !/^\d{6}$/.test(otp.trim())}
               className="w-full flex items-center justify-center gap-2 py-4 rounded-xl text-base font-bold text-white disabled:opacity-60 hover:opacity-90 transition-opacity"
               style={{ backgroundColor: '#112116' }}
             >
