@@ -64,6 +64,37 @@ export function apiErrorMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
+/** First validation message per Laravel field key. */
+export function apiFieldErrors(body: unknown): Record<string, string> {
+  if (!body || typeof body !== "object") return {};
+  const b = body as { errors?: Record<string, string[]> };
+  if (!b.errors || typeof b.errors !== "object") return {};
+  const result: Record<string, string> = {};
+  for (const [key, messages] of Object.entries(b.errors)) {
+    if (Array.isArray(messages) && typeof messages[0] === "string") {
+      result[key] = messages[0];
+    }
+  }
+  return result;
+}
+
+export type SetPasswordPayload = {
+  email: string;
+  code: string;
+  password: string;
+  password_confirmation: string;
+};
+
+export type SetPasswordResponse = {
+  message: string;
+};
+
+export type LoginPayload = {
+  email: string;
+  password: string;
+  device?: string;
+};
+
 export function extractAuthTokenFromBody(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
@@ -150,9 +181,35 @@ export const AuthApi = {
     const body = await parseResponseBody(res);
     return { ok: res.ok, status: res.status, body };
   },
-  /** POST /auth/login — body: { email, password } */
-  login: async (data: { email: string; password: string }): Promise<ApiResult> => {
+  /** POST /auth/login — body: { email, password, device? } */
+  login: async (data: LoginPayload): Promise<ApiResult> => {
     const res = await fetch(`${PUBLIC_API_BASE}/auth/login`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...data, device: data.device ?? "web" }),
+    });
+    const body = await parseResponseBody(res);
+    return { ok: res.ok, status: res.status, body };
+  },
+  /** POST /auth/reset-password — walk-in SIM or forgot-password flow */
+  resetPassword: async (data: SetPasswordPayload): Promise<ApiResult> => {
+    const res = await fetch(`${PUBLIC_API_BASE}/auth/reset-password`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+    const body = await parseResponseBody(res);
+    return { ok: res.ok, status: res.status, body };
+  },
+  /** POST /auth/forgot-password — request a new reset code */
+  forgotPassword: async (data: { email: string }): Promise<ApiResult> => {
+    const res = await fetch(`${PUBLIC_API_BASE}/auth/forgot-password`, {
       method: "POST",
       headers: {
         Accept: "application/json",
